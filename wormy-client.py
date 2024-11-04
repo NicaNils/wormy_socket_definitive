@@ -37,10 +37,10 @@ DARKGREEN = (  0, 155,   0)
 DARKGRAY  = ( 40,  40,  40)
 BGCOLOR = BLACK
 
-UP = '0'
-DOWN = '1'
-LEFT = '2'
-RIGHT = '3'
+UP = 0
+DOWN = 1
+LEFT = 2
+RIGHT = 3
 
 HEAD = 0 # syntactic sugar: index of the worm's head
 direction = RIGHT
@@ -63,6 +63,8 @@ def runGame():
 
     def receive_updates():
         while running:
+            FPSCLOCK.tick(FPS)
+
             print("Receiving updates")
             try:
                 data = s.recv(1024)
@@ -73,42 +75,44 @@ def runGame():
                 print(f"Received message: {message}")
                 if message['type'] == 'board_update':
                     snakes = message['snakes']
+                    print(snakes)
                     for snake in snakes:
-                        wormCoords = snake['coords']
-                        drawWorm(wormCoords)
+                        drawWorm(snake['coords'], snake['color'])
             except socket.timeout:
                 print("Timeout")
                 continue
             except Exception as e:
                 print(f"Error: {e}")
                 break
-    def send_direction():
-        while running:
-            for event in pygame.event.get():
-                print(f"Event: {event}")
-                if event.type == QUIT:
+    receive_thread = threading.Thread(target=receive_updates)
+    receive_thread.start()
+    print("Sending direction")
+    while running:
+        FPSCLOCK.tick(FPS)
+        for event in pygame.event.get():
+            if event.type == QUIT:
+                s.sendall(json.dumps({'type': 'quit'}).encode())
+                print("Sent quit message")
+                terminate()
+            elif event.type == KEYDOWN:
+                if event.key == K_w:
+                    direction = UP
+                elif event.key == K_a:
+                    direction = LEFT
+                elif event.key == K_s:
+                    direction = DOWN
+                elif event.key == K_d:
+                    direction = RIGHT
+                elif event.key == K_ESCAPE:
                     s.sendall(json.dumps({'type': 'quit'}).encode())
                     print("Sent quit message")
                     terminate()
-                elif event.type == KEYDOWN:
-                    print(f"Key pressed: {event.key}")
-                    if event.key == K_w:
-                        direction = UP
-                    elif event.key == K_a:
-                        direction = LEFT
-                    elif event.key == K_s:
-                        direction = DOWN
-                    elif event.key == K_d:
-                        direction = RIGHT
-                    s.sendall(json.dumps({'type': 'direction', 'direction': direction}).encode())
-                    print(f"Sent direction: {direction}")
-    send_thread = threading.Thread(target=send_direction)
-    receive_thread = threading.Thread(target=receive_updates)
+                else:
+                    continue
+                s.sendall(json.dumps({'type': 'direction', 'direction': direction}).encode())
+                print(f"Sent direction: {json.dumps({'type': 'direction', 'direction': direction})}")
     
-    receive_thread.start()
-    send_thread.start()
-
-    send_thread.join()
+    
     receive_thread.join()
 
 def updateBoard(snakes):
@@ -120,7 +124,7 @@ def updateBoard(snakes):
     pygame.display.update()
     FPSCLOCK.tick(FPS)
 
-def drawWorm(wormCoords):
+def drawWorm(wormCoords, color):
     for coord in wormCoords:
         x = coord['x'] * CELLSIZE
         y = coord['y'] * CELLSIZE
