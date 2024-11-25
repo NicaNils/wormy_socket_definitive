@@ -10,11 +10,12 @@ from pygame.locals import *
 import json
 import threading
 import queue
+from time import sleep
 
-HOST = "10.157.0.60" # change accordingly
+HOST = "10.157.0.60"
 PORT = 65432
 
-FPS = 10
+FPS = 128
 WINDOWWIDTH = 1600
 WINDOWHEIGHT = 900
 CELLSIZE = 20
@@ -25,7 +26,7 @@ CELLHEIGHT = int(WINDOWHEIGHT / CELLSIZE)
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect((HOST, PORT))
-s.settimeout(1.0)  # Set a timeout for socket operations
+s.settimeout(1.0)
 print(f"Connection established with {HOST}:{PORT}")
 
 #             R    G    B
@@ -67,26 +68,36 @@ def runGame():
 
             print("Receiving updates")
             try:
-                data = s.recv(1024)
-                if not data:
-                    print("No data")
-                    continue
-                message = json.loads(data.decode())
-                print(f"Received message: {message}")
-                if message['type'] == 'board_update':
-                    snakes = message['snakes']
-                    print(snakes)
-                    for snake in snakes:
-                        drawWorm(snake['coords'], snake['color'])
+                buffer = ''
+                while True:
+                    data = s.recv(1024)
+                    if not data:
+                        print("No data")
+                        continue
+                    buffer += data.decode()
+                    while '\n' in buffer:
+                        message, buffer = buffer.split('\n', 1)
+                        message = json.loads(message)
+                        print(f"Received message: {message}")
+                        if message['type'] == 'board_update':
+                            snakes = message['snakes']
+                            print(snakes)
+                            # drawApple(snake['apple'])
+                            # drawScore(snake['score'])
+                            drawGrid()
+                            for snake in json.loads(str(snakes)):
+                                drawWorm(snake['coords'], snake['color'])
             except socket.timeout:
                 print("Timeout")
                 continue
             except Exception as e:
-                print(f"Error: {e}")
+                print(f"Error while receivingd: {e}")
                 break
     receive_thread = threading.Thread(target=receive_updates)
     receive_thread.start()
+
     print("Sending direction")
+    inputQueue = []
     while running:
         FPSCLOCK.tick(FPS)
         for event in pygame.event.get():
@@ -105,22 +116,18 @@ def runGame():
                     direction = RIGHT
                 elif event.key == K_ESCAPE:
                     s.sendall(json.dumps({'type': 'quit'}).encode())
-                    print("Sent quit message")
-                    terminate()
-                else:
-                    continue
-                s.sendall(json.dumps({'type': 'direction', 'direction': direction}).encode())
+                s.sendall((json.dumps({'type': 'direction', 'direction': direction})).encode())
                 print(f"Sent direction: {json.dumps({'type': 'direction', 'direction': direction})}")
+            else:
+                continue
     
     
     receive_thread.join()
 
-def updateBoard(snakes):
-    for snake in snakes:
-        wormCoords = snake['coords']
+def updateBoard(snake):
+    for segment in snake:
+        wormCoords = segment['coords']
         drawWorm(wormCoords)
-    drawApple(snake['apple'])
-    drawScore(snake['score'])
     pygame.display.update()
     FPSCLOCK.tick(FPS)
 
@@ -132,8 +139,8 @@ def drawWorm(wormCoords, color):
         pygame.draw.rect(DISPLAYSURF, DARKGREEN, wormSegmentRect)
         wormInnerSegmentRect = pygame.Rect(x + 4, y + 4, CELLSIZE - 8, CELLSIZE - 8)
         pygame.draw.rect(DISPLAYSURF, GREEN, wormInnerSegmentRect)
-        pygame.display.update()
-        FPSCLOCK.tick(FPS)
+    pygame.display.update()
+    FPSCLOCK.tick(FPS)
 
 def terminate():
     pygame.quit()
