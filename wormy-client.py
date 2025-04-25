@@ -12,7 +12,7 @@ import threading
 import queue
 from time import sleep
 
-HOST = "10.157.0.60"
+HOST = "10.151.5.34"
 PORT = 65432
 
 FPS = 128
@@ -44,7 +44,6 @@ LEFT = 2
 RIGHT = 3
 
 HEAD = 0 # syntactic sugar: index of the worm's head
-direction = RIGHT
 
 def main():
     global FPSCLOCK, DISPLAYSURF, BASICFONT
@@ -60,46 +59,51 @@ def main():
 
 def runGame():
     snakes = []
+    apple = None  # Initialize apple
     running = True
 
     def receive_updates():
+        nonlocal snakes, apple  # Ensure these variables are updated
+        print("Receiving updates")
         while running:
             FPSCLOCK.tick(FPS)
-
-            print("Receiving updates")
             try:
-                buffer = ''
-                while True:
-                    data = s.recv(1024)
-                    if not data:
-                        print("No data")
-                        continue
-                    buffer += data.decode()
-                    while '\n' in buffer:
-                        message, buffer = buffer.split('\n', 1)
-                        message = json.loads(message)
-                        print(f"Received message: {message}")
-                        if message['type'] == 'board_update':
-                            snakes = message['snakes']
-                            print(snakes)
-                            # drawApple(snake['apple'])
-                            # drawScore(snake['score'])
-                            drawGrid()
-                            for snake in json.loads(str(snakes)):
-                                drawWorm(snake['coords'], snake['color'])
+                data = s.recv(1024)
+                if not data:
+                    print("No data received")
+                    continue
+                message = json.loads(data.decode())
+                if message['type'] == 'board_update':
+                    snakes = message['snakes']
+                    print(f"Received snakes: {snakes}")
+                    apple = message['apple']
             except socket.timeout:
                 print("Timeout")
                 continue
             except Exception as e:
-                print(f"Error while receivingd: {e}")
+                print(f"Error while receiving: {e}")
                 break
+
     receive_thread = threading.Thread(target=receive_updates)
     receive_thread.start()
 
     print("Sending direction")
-    inputQueue = []
+    direction = RIGHT  # Ensure direction is initialized
     while running:
         FPSCLOCK.tick(FPS)
+        DISPLAYSURF.fill(BGCOLOR)  # Clear the screen
+        drawGrid()  # Draw the grid
+
+        # Draw the apple if it exists
+        if apple:
+            drawApple(apple)
+
+        # Draw all snakes
+        for snake in snakes:
+            drawWorm(snake['coords'], DARKGREEN)
+
+        pygame.display.update()  # Update the display
+
         for event in pygame.event.get():
             if event.type == QUIT:
                 s.sendall(json.dumps({'type': 'quit'}).encode())
@@ -116,31 +120,25 @@ def runGame():
                     direction = RIGHT
                 elif event.key == K_ESCAPE:
                     s.sendall(json.dumps({'type': 'quit'}).encode())
-                s.sendall((json.dumps({'type': 'direction', 'direction': direction})).encode())
-                print(f"Sent direction: {json.dumps({'type': 'direction', 'direction': direction})}")
+                    print("Sent quit message")
+                    terminate()
+                # Ensure direction is sent only if it has been updated
+                if 'direction' in locals():
+                    s.sendall((json.dumps({'type': 'direction', 'direction': direction})).encode())
+                    print(f"Sent direction: {json.dumps({'type': 'direction', 'direction': direction})}")
             else:
                 continue
-    
-    
-    receive_thread.join()
 
-def updateBoard(snake):
-    for segment in snake:
-        wormCoords = segment['coords']
-        drawWorm(wormCoords)
-    pygame.display.update()
-    FPSCLOCK.tick(FPS)
+    receive_thread.join()
 
 def drawWorm(wormCoords, color):
     for coord in wormCoords:
         x = coord['x'] * CELLSIZE
         y = coord['y'] * CELLSIZE
         wormSegmentRect = pygame.Rect(x, y, CELLSIZE, CELLSIZE)
-        pygame.draw.rect(DISPLAYSURF, DARKGREEN, wormSegmentRect)
+        pygame.draw.rect(DISPLAYSURF, color, wormSegmentRect)
         wormInnerSegmentRect = pygame.Rect(x + 4, y + 4, CELLSIZE - 8, CELLSIZE - 8)
         pygame.draw.rect(DISPLAYSURF, GREEN, wormInnerSegmentRect)
-    pygame.display.update()
-    FPSCLOCK.tick(FPS)
 
 def terminate():
     pygame.quit()
